@@ -14,6 +14,7 @@ import com.querydsl.jpa.impl.JPAQueryFactory;
 import study.querydsl.entity.Member;
 import study.querydsl.entity.QMember;
 import study.querydsl.entity.Team;
+import static study.querydsl.entity.QMember.*;
 
 @SpringBootTest
 @Transactional
@@ -56,18 +57,44 @@ public class QuerydslBasicTest {
 	
 	@Test
 	public void startQuerydsl() {
-		QMember m = QMember.member;
 		// TODO: 새로 엔티티를 만들었다면, 이클립스 + gradle 기준으로는
 		// 다시 build를 해준뒤 gradle refresh해야 build/generated/querydsl (설정한 경로)
 		// 에 QClass 가 적용된다
 		
+		//QMember m = QMember.member;
+		
 		Member findMember = queryFactory
-			.select(m)
-			.from(m)
-			.where(m.username.eq("member1")) // 파라미터 바인딩
+			.select(member)
+			.from(member)
+			.where(member.username.eq("member1")) // 파라미터 바인딩
 			.fetchOne();
 		
 		Assertions.assertThat(findMember.getUsername()).isEqualTo("member1");
 	}
 	
+	@Test
+	public void search() {
+		Member findMember = queryFactory
+			.selectFrom(member)
+			.where(member.username.eq("member1")
+					.and(member.age.eq(10)))
+				.fetchOne();
+		
+		Assertions.assertThat(findMember.getUsername()).isEqualTo("member1");
+		// eq 뿐만아니라
+		// in, notIn, between, goe, gt, loe, lt, like, contatins, startsWith 등 쓸 수 있음
+	}
+	
+	// .and 를 사용하는 대신 ','로 조건을 이어줄 수 있음
+	@Test
+	public void searchAndParam() {
+		Member findMember = queryFactory
+				.selectFrom(member)
+				.where(member.username.eq("member1"),
+						member.age.eq(10)
+						)
+				.fetchOne();
+		
+		Assertions.assertThat(findMember.getUsername()).isEqualTo("member1");
+	}
 }
