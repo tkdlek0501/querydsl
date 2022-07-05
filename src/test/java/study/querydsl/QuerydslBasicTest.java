@@ -17,9 +17,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.CaseBuilder;
+import com.querydsl.core.types.dsl.Expressions;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
 import study.querydsl.entity.Member;
+import study.querydsl.entity.QMember;
 import study.querydsl.entity.Team;
 
 @SpringBootTest
@@ -327,5 +331,156 @@ public class QuerydslBasicTest {
 		
 		Boolean loaded = emf.getPersistenceUnitUtil().isLoaded(findMember.getTeam()); // 초기화(로딩)가 됐는지 안됐는지 여부 반환
 		Assertions.assertThat(loaded).isTrue();
+	}
+	
+	// sub query
+	@Test
+	public void subQuery() {
+		// 나이가 가장 많은 회원 조회
+		
+		QMember memberSub = new QMember("memberSub"); // sub query에서 사용
+		
+		List<Member> result = queryFactory	
+			.selectFrom(member)
+			.where(member.age.eq(
+						JPAExpressions
+							.select(memberSub.age.max())
+							.from(memberSub)
+					))
+			.fetch();
+		
+		Assertions.assertThat(result).extracting("age")
+			.containsExactly(40);
+	}
+	
+	@Test
+	public void subQueryGoe() {
+		// 나이가 평균 이상인 회원
+		
+		QMember memberSub = new QMember("memberSub"); // sub query에서 사용
+		
+		List<Member> result = queryFactory	
+			.selectFrom(member)
+			.where(member.age.goe(
+						JPAExpressions
+							.select(memberSub.age.avg())
+							.from(memberSub)
+					))
+			.fetch();
+		
+		Assertions.assertThat(result).extracting("age")
+			.containsExactly(30, 40);
+	}
+	
+	@Test
+	public void subQueryIn() {
+		// 나이가 10세 이상인 회원 조회 (굳이 in절 쓸 필요 없지만 예제상)
+		
+		QMember memberSub = new QMember("memberSub"); // sub query에서 사용
+		
+		List<Member> result = queryFactory	
+			.selectFrom(member)
+			.where(member.age.in(
+						JPAExpressions
+							.select(memberSub.age)
+							.from(memberSub)
+							.where(memberSub.age.gt(10))
+					))
+			.fetch();
+		
+		Assertions.assertThat(result).extracting("age")
+			.containsExactly(20, 30, 40);
+	}
+	
+	@Test
+	public void selectSubQuery() {
+		
+		// username 과 평균 나이 조회
+		
+		QMember memberSub = new QMember("memberSub");
+		
+		List<Tuple> result = queryFactory
+			.select(member.username,
+					JPAExpressions // static import 가능
+					.select(memberSub.age.avg())
+					.from(memberSub)
+					)
+			.from(member)
+			.fetch();
+		
+		for(Tuple tuple : result) {
+			System.out.println("tuple = " + tuple);
+		}
+	}
+	
+	// * from 절에서 서브쿼리는 사용할 수 없음(한계)
+	// JPQL의 한계점으로 QueryDSL도 당연히 지원 안된다
+	
+	// 해결방안
+	// 1. 서브쿼리를 가능하다면 join으로 변경한다. (일반적으로 가능한 경우가 많다)
+	// 2. 애플리케이션에서 쿼리를 2개로 분리해서 실행한다. (성능 문제가 없다면 이 방법 사용)
+	// 3. nativeSQL을 사용한다. (안되면 @Query로 nativeSQL 사용하면 된다)
+	
+	// case 문
+	@Test
+	public void basicCase() {
+		List<String> result = queryFactory
+			.select(member.age
+					.when(10).then("열살")
+					.when(20).then("스무살")
+					.otherwise("기타")
+					)
+			.from(member)
+			.fetch();
+		
+		for(String s : result) {
+			System.out.println("s = " + s);
+		}
+	}
+	
+	@Test
+	public void complexCase() {
+		List<String> result = queryFactory
+			.select(new CaseBuilder() // when절에 조건을 추가하려면 CaseBuilder() 필요
+					.when(member.age.between(0, 20)).then("0~20살")
+					.when(member.age.between(21, 30)).then("21~30살")
+					.otherwise("기타")
+					)
+			.from(member)
+			.fetch();
+		
+		for(String s : result) {
+			System.out.println("s = " + s);
+		}
+		
+		// 이런 복잡한 조건이 있는 경우에는 애플리케이션에서 로직을 만들어 처리하는 게 낫다
+		// DB에서는 필요한 data만을 조회하기 위한 쿼리를 작성해야지 data 가공을 하는 것은 지양하는 게 좋다
+	}
+	
+	// 상수, 문자 더하기 -> 이것도 data를 가공해서 추출하는 방법이니까 지양해야 하지 않을까? 애플리케이션에서 충분히 처리 가능
+	@Test
+	public void constant() {
+		List<Tuple> result = queryFactory
+			.select(member.username, Expressions.constant("A"))
+			.from(member)
+			.fetch();
+			
+			for(Tuple tuple : result) {
+				System.out.println("tuple = " + tuple);
+			}
+	}
+	
+	@Test
+	public void concat() {
+		List<String> result = queryFactory
+			.select(member.username.concat("_").concat(member.age.stringValue()))
+			// .stringValue() : age는 숫자 이므로 string으로 변환해야 한다 -> 특히 Enum을 처리할 때 자주 사용 (ex. member안에 enum을 쿼리에 넣고 싶을 때)
+			.from(member)
+			.where(member.username.eq("member1"))
+			.fetch();
+		
+		for(String s : result) {
+			System.out.println("s = " + s);
+		}
 	}
 }
