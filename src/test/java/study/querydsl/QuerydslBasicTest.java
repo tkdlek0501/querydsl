@@ -17,11 +17,16 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.querydsl.core.Tuple;
+import com.querydsl.core.annotations.QueryProjection;
+import com.querydsl.core.types.ExpressionUtils;
+import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 
+import study.querydsl.dto.MemberDto;
+import study.querydsl.dto.QMemberDto;
 import study.querydsl.entity.Member;
 import study.querydsl.entity.QMember;
 import study.querydsl.entity.Team;
@@ -110,7 +115,7 @@ public class QuerydslBasicTest {
 		Assertions.assertThat(findMember.getUsername()).isEqualTo("member1");
 	}
 	
-	@Test
+//	@Test
 	public void resultFetch() {
 		List<Member> fetch = queryFactory
 			.selectFrom(member)
@@ -195,7 +200,7 @@ public class QuerydslBasicTest {
 	}
 	
 	//팀의 이름과 각 팀의 평균 연령을 구해라
-	@Test
+//	@Test
 	public void group() throws Exception {
 		List<Tuple> result = queryFactory
 			.select(team.name, member.age.avg())
@@ -483,4 +488,125 @@ public class QuerydslBasicTest {
 			System.out.println("s = " + s);
 		}
 	}
+	
+	// 프로젝션 : select 대상 지정
+	// 대상이 하나이면 타입을 명확하게 할 수 있지만
+	// 대상이 여러개이면 tuple or dto로 조회해야 한다
+	
+	@Test
+	public void simpleProjection() {
+		List<String> result = queryFactory
+			.select(member.username)
+			.from(member)
+			.fetch();
+		
+		for(String r : result) {
+			System.out.println("r : " + r);
+		}
+	}
+	
+	@Test
+	public void tupleProjection() {
+		List<Tuple> result = queryFactory
+				.select(member.username, member.age)
+				.from(member)
+				.fetch();
+		
+		for(Tuple tuple : result) {
+			String username = tuple.get(member.username);
+			Integer age = tuple.get(member.age);
+			System.out.println("username : " + username);
+			System.out.println("age : " + age);
+		}
+	}
+	// tuple은 레포지토리 계층에서 쓰는건 괜찮지만, 서비스계층 이상으로 넘어가는 것은 좋지 않다
+	// 핵심 비즈니스 로직에서 레포지토리에서 어떤 기술을 사용하는지 아는 것과 그것을 의존하는 것은 좋지 않음
+	
+	// JPQL 로 DTO 조회하는 방법
+	@Test
+	public void findDtoByJPQL() {
+		List<MemberDto> result = em.createQuery("select new study.querydsl.dto.MemberDto(m.username, m.age) from Member m", MemberDto.class)
+		.getResultList();
+		
+		for (MemberDto memberDto : result) {
+			System.out.println("memberDto = " + memberDto);
+		}
+	}
+	// 생성자 방식만 지원하고 이를 package이름으로 적어줘야 해서 지저분하다
+	
+	// TODO: dto 조회
+	// querydsl은 3가지 방법을 지원한다
+	// 프로퍼티 접근, 필드 직접 접근, 생성자 사용
+	
+	// 1. 프로퍼티 접근 - setter
+	// *setter를 만들어야 한다
+	@Test
+	public void findDtoBySetter() {
+		List<MemberDto> result = queryFactory
+			.select(Projections.bean(MemberDto.class,
+					member.username,
+					member.age))
+			.from(member)
+			.fetch();
+		
+		for(MemberDto memberDto : result) {
+			System.out.println("memberDto = " + memberDto);
+		}
+	}
+	
+	// 2. 필드 직접 접근 (setter 안 만들어도 됨)
+	@Test
+	public void findDtoByField() {
+		// QMember memberSub = new QMember("memberSub");
+		QMember memberSub = QMember.member;
+		List<MemberDto> result = queryFactory
+			.select(Projections.fields(MemberDto.class,
+					member.username.as("username"), // *만약 조회할 DTO와 엔티티의 필드명이 다른 경우에는 as로 DTO의 필드명을 지정하면 된다
+					// member.age,
+					ExpressionUtils.as(JPAExpressions   // subquery
+							.select(memberSub.age.max())
+							.from(memberSub), "age"
+							)
+					))
+			.from(member)
+			.fetch();
+		
+		for(MemberDto memberDto : result) {
+			System.out.println("memberDto = " + memberDto);
+		}
+	}
+	
+	// 3. 생성자 방식 (만든 생성자와 타입을 맞춰줘야 한다, 필드명은 안맞춰줘도 된다.(매개변수로 들어가는 거니까))
+	@Test
+	public void findDtoByConstructor() {
+		List<MemberDto> result = queryFactory
+			.select(Projections.constructor(MemberDto.class,
+					member.username,
+					member.age))
+			.from(member)
+			.fetch();
+		
+		for(MemberDto memberDto : result) {
+			System.out.println("memberDto = " + memberDto);
+		}
+	}
+	
+	// TODO: dto 조회 (dto도 QClass로 만들기)
+	// MemberDto 의 생성자에 @QueryProjection 붙이고 build 뒤에 gradle을 refresh 하면 QClass 생성된다
+	// 인텔리제이에서는 compileQuerydsl
+	@Test
+	public void findDtoByQueryProjection() {
+		List<MemberDto> result = queryFactory
+			.select(new QMemberDto(member.username, member.age))
+			.from(member)
+			.fetch();
+		
+		for(MemberDto memberDto : result) {
+			System.out.println("memberDto : " + memberDto);
+		}
+	}
+	// 생성자 방식과의 차이는 생성자의 파라미터를 잘못 입력했을 때, 런타임 오류를 내느냐 컴파일 오류를 내느냐
+	// 문제점은 DTO가 @QueryProjection을 쓰면서 querydsl 에 의존을 가지게 된다는 것 (+ QClass를 생성해줘야 한다는 것)
+	// 아키텍쳐를 비교적 잘 설계 하느냐 vs 런타임 오류를 막느냐
+	// 개인적으로 생성자 방식을 사용하는게 좋아보인다... 
 }
