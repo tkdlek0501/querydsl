@@ -16,10 +16,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.Tuple;
-import com.querydsl.core.annotations.QueryProjection;
 import com.querydsl.core.types.ExpressionUtils;
+import com.querydsl.core.types.Predicate;
 import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.dsl.CaseBuilder;
 import com.querydsl.core.types.dsl.Expressions;
 import com.querydsl.jpa.JPAExpressions;
@@ -609,4 +611,71 @@ public class QuerydslBasicTest {
 	// 문제점은 DTO가 @QueryProjection을 쓰면서 querydsl 에 의존을 가지게 된다는 것 (+ QClass를 생성해줘야 한다는 것)
 	// 아키텍쳐를 비교적 잘 설계 하느냐 vs 런타임 오류를 막느냐
 	// 개인적으로 생성자 방식을 사용하는게 좋아보인다... 
+	
+	// TODO : 동적쿼리 사용하는 2가지 방법 
+	// BooleanBuilder 
+	@Test
+	public void dynamicQuery_BooleanBuilder() {
+		String usernameParam = "member1";
+		Integer ageParam = null;
+		
+		List<Member> result = searchMember1(usernameParam, ageParam);
+		Assertions.assertThat(result.size()).isEqualTo(1);
+	}
+	
+	private List<Member> searchMember1(String usernameCond, Integer ageCond){
+		BooleanBuilder builder = new BooleanBuilder();
+		
+		if(usernameCond != null) {
+			builder.and(member.username.eq(usernameCond));
+		}
+		
+		if(ageCond != null) {
+			builder.and(member.age.eq(ageCond)); // or 도 가능
+		}
+		
+		return queryFactory
+				.selectFrom(member)
+				.where(builder)
+				.fetch();
+	}
+	
+	// where 다중 파라미터 // searchMember2 메서드만 보고서도 조건을 파악할 수 있다(쿼리 자체의 가독성 좋음) but 메서드를 각각 만들어야 한다 -> 재사용을 할 수 있다
+	@Test
+	public void dynamicQuery_WhereParam() {
+		String usernameParam = "member1";
+		Integer ageParam = 10;
+		
+		List<Member> result = searchMember2(usernameParam, ageParam);
+		Assertions.assertThat(result.size()).isEqualTo(1);
+	}
+	
+	private List<Member> searchMember2(String usernameCond, Integer ageCond){
+		return queryFactory
+				.selectFrom(member)
+				//.where(usernameEq(usernameCond), ageEq(ageCond))
+				.where(allEq(usernameCond, ageCond))
+				.fetch();
+	}
+	
+	private BooleanExpression usernameEq(String usernameCond) {
+//		if(usernameCond == null) {
+//			return null;
+//		}
+//		return member.username.eq(usernameCond);
+		return usernameCond == null ? null : member.username.eq(usernameCond);
+	}
+	
+	// Predicate 보다 BooleanExpression을 쓰는게 낫다
+	private BooleanExpression ageEq(Integer ageCond) {
+		if(ageCond == null) {
+			return null;
+		}
+		return member.age.eq(ageCond);
+	}
+	
+	// 메서드 두개 이상을 조합 가능 -> 재사용성이 커진다 (실무에서 유리하다)
+	private BooleanExpression allEq(String usernameCond, Integer ageCond) {
+		return usernameEq(usernameCond).and(ageEq(ageCond));
+	}
 }
