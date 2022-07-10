@@ -344,7 +344,6 @@ public class QuerydslBasicTest {
 	@Test
 	public void subQuery() {
 		// 나이가 가장 많은 회원 조회
-		
 		QMember memberSub = new QMember("memberSub"); // sub query에서 사용
 		
 		List<Member> result = queryFactory	
@@ -677,5 +676,92 @@ public class QuerydslBasicTest {
 	// 메서드 두개 이상을 조합 가능 -> 재사용성이 커진다 (실무에서 유리하다)
 	private BooleanExpression allEq(String usernameCond, Integer ageCond) {
 		return usernameEq(usernameCond).and(ageEq(ageCond));
+	}
+	
+	@Test
+	public void bulkUpdate() {
+		
+		// member1 = 10 -> 비회원
+		// member2 = 10 -> 비회원
+		// member3 = 30 -> 유지
+		// member4 = 40 -> 유지
+		
+		long count = queryFactory
+			.update(member)
+			.set(member.username, "비회원")
+			.where(member.age.lt(28))
+			.execute(); // bulk
+		
+		// * bulk성 쿼리가 나가면 DB는 변경이 되지만 영속성 컨텍스트는 유지된다
+		// 영속성 컨텍스트를 무시하고 DB에 커밋하기 때문에
+		
+		List<Member> result = queryFactory
+				.selectFrom(member)
+				.fetch();
+		
+		for(Member member1 : result) {
+			System.out.println("member1 : " + member1);
+		} // 여기서는 DB에 반영된 결과대로 가져오지 않고 영속성 컨텍스트 1차 캐시로 부터 조회된다
+		
+		// 영속성 컨텍스트를 초기화 시키고 다음 작업을 수행해야 DB에 반영 된 결과를 사용할 수 있다
+		em.flush();
+		em.clear();
+		
+		List<Member> clearResult = queryFactory
+				.selectFrom(member)
+				.fetch();
+		
+		for(Member member2 : clearResult) {
+			System.out.println("member2 : " + member2);
+		}
+	}
+	
+	@Test
+	public void bulkAdd() {
+		long count = queryFactory
+		.update(member)
+		.set(member.age, member.age.add(1))
+		// .set(member.age, member.age.multiply(2))
+		.execute();
+	}
+	
+	// bulk 삭제
+	@Test
+	public void bulkDelete() {
+		queryFactory
+		.delete(member)
+		.where(member.age.gt(18))
+		.execute();
+	}
+	
+	// SQL function 호출하기
+	@Test
+	public void sqlFunction() {
+		List<String> result = queryFactory
+			.select(
+					Expressions.stringTemplate(
+							"function('replace', {0}, {1}, {2})",
+							member.username, "member", "M")) // 'member'를 'M' 으로 치환
+			.from(member)
+			.fetch();
+		
+		for(String s : result) {
+			System.out.println("s = " + s);
+		}
+	}
+	
+	@Test
+	public void sqlFunction2() {
+		List<String> result = queryFactory
+			.select(member.username)
+			.from(member)
+			//.where(member.username.eq(Expressions.stringTemplate("function('lower', {0})", member.username)))
+			.where(member.username.eq(member.username.lower())) // 위와 동일
+			// 일반적으로 DB에서 제공하는 함수는 querydsl에서도 제공하고 있다
+			.fetch();
+		
+		for(String s : result) {
+			System.out.println("s = " + s);
+		}
 	}
 }
