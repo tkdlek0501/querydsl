@@ -47,7 +47,7 @@ public class MemberJpaRepositoryTest {
 		condition.setAgeLoe(40);
 		condition.setTeamName("teamB");
 		
-		List<MemberTeamDto> result = memberJpaRepository.searchByBuilder(condition);
+		List<MemberTeamDto> result = memberJpaRepository.search(condition); // searchByBuilder(condition)
 		for(MemberTeamDto each : result) {
 			System.out.println("each : " + each);
 		}
